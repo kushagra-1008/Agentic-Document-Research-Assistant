@@ -1,0 +1,52 @@
+[
+    {
+        "role": "user",
+        "content": "what is the embedding  document about?"
+    },
+    {
+        "role": "assistant",
+        "content": "The document is about text embeddings, which are vector representations of text that power applications like retrieval, question answering, semantic textual similarity, and clustering. It also mentions recent advances in LLMs showing that a single model can generate embeddings excelling across diverse tasks. (embeddings.pdf, Page: 1)",
+        "citations": [
+            {
+                "source": "embeddings.pdf",
+                "page": 1,
+                "text": "1 Introduction\nText embeddings are vector representations of text\nthat power a wide range of applications, including\nretrieval, question answering, semantic textual sim-\nilarity, and clustering. Recent advances in LLMs\nhave shown that a single model can generate em-\nbeddings excelling across diverse..."
+            },
+            {
+                "source": "embeddings.pdf",
+                "page": 5,
+                "text": "query input text as\nqins =⟨Instruct⟩{task_definition}⟨query⟩{q}.\n(3)\nHere task_definition refers to the definition of the\nspecific embedding task, guiding the model to\nadapt towards that task. On the other hand, the\ninput of the passage part is solely the original text.\nFollowing Wang et al. (2023)..."
+            },
+            {
+                "source": "embeddings.pdf",
+                "page": 5,
+                "text": "the InfoNCE loss as our objective,\nL =− log exp(sim(qins,p )/τ)\nexp( sim(qins,p)\nτ ) + ∑N\nj=1 exp(\nsim(qins,p−\nj )\nτ )\n(4)\nHerep−\nj andN denote the negative passage and the\nnumber of negative passages, respectively.sim() is\nthe cosine similarity function, defined as sim() =\ncos(hqins,hp), wherehqins..."
+            }
+        ]
+    },
+    {
+        "role": "user",
+        "content": "does it relate with attention document?"
+    },
+    {
+        "role": "assistant",
+        "content": "Yes, both documents relate to attention.\n\nThe `embeddings.pdf` document mentions that LLMs typically employ unidirectional attention during pre-training, where tokens only attend to preceding tokens (embeddings.pdf, Page 2, 3).\n\nThe `attention.pdf` document describes Self-attention (sometimes called intra-attention) as an attention mechanism relating different positions. It also mentions Multi-Head Attention, which counteracts reduced effective resolution due to averaging attention-weighted positions (attention.pdf, Page 2).",
+        "citations": [
+            {
+                "source": "attention.pdf",
+                "page": 2,
+                "text": "the number of operations required to relate signals from two arbitrary input or output positions grows\nin the distance between positions, linearly for ConvS2S and logarithmically for ByteNet. This makes\nit more difﬁcult to learn dependencies between distant positions [ 11]. In the Transformer this i..."
+            },
+            {
+                "source": "embeddings.pdf",
+                "page": 3,
+                "text": "unidirectional attention.\nPromptReps enables LLMs to generate both\ndense and lexicon-based embeddings through care-\nfully designed prompts such as “This sentence [IN-\nPUT] means in one word:” . Dense embeddings\n18988..."
+            },
+            {
+                "source": "embeddings.pdf",
+                "page": 2,
+                "text": "ficulties in lexicon matching (e.g., the choice of\nwhether“what” and/or“ what” appears in the lex-\nical representation should be consistent along with\ntheir associated weights). Consequently, recent\nstudies indicate that replacing the original tokeniza-\ntion of BM25 (Robertson et al., 1995) with the..."
+            }
+        ]
+    }
+]

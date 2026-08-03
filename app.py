@@ -5,24 +5,35 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
-
+import json
 load_dotenv()
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_huggingface import HuggingFaceEmbeddings
 import streamlit as st
 
+
+
+CHAT_HISTORY_FILE = "chat_history.json"
 DATA_DIR = "data"
 VECTOR_DB_DIR = "chroma_db"
 COLLECTION_NAME = "documents"
+
 PROMPT = ChatPromptTemplate.from_template("""
+
 You are an Agentic Document Research Assistant.
+
 You must answer ONLY using the supplied context.
+
 If the answer cannot be found in the context, reply EXACTLY:
--"I couldn't find sufficient information in the uploaded documents."
--Do not use outside knowledge.
--Do not make assumptions or infer facts that are not explicitly supported by the context.
--When the context contains page metadata, cite the document name and page number in your answer.
+
+"I couldn't find sufficient information in the uploaded documents."
+
+Do not use outside knowledge.
+
+Do not make assumptions or infer facts that are not explicitly supported by the context.
+
+When the context contains page metadata, cite the document name and page number in your answer.
 
 Context:
 {context}
@@ -133,6 +144,22 @@ Page: {doc.metadata.get("page")}
 """ for doc in docs)
 
 
+def load_chat_history():
+    if not os.path.exists(CHAT_HISTORY_FILE):
+        return []
+    try:
+        with open(CHAT_HISTORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return []
+
+    
+def save_chat_history(messages):
+    with open(CHAT_HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(messages, f, indent=4, ensure_ascii=False)
+
+
+
 def generate_answer(context, question):
 
     chain = PROMPT | llm | StrOutputParser()
@@ -209,7 +236,7 @@ st.set_page_config(
 # --------------------------------------------------
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state.messages = load_chat_history()
 
 # --------------------------------------------------
 # Sidebar
@@ -290,6 +317,17 @@ with st.sidebar:
                 "Skipped existing files:\n\n"
                 + "\n".join(f"• {file}" for file in skipped_files)
             )
+    st.divider()
+
+    if st.button("🗑️ Clear Chat", use_container_width=True):
+
+        st.session_state.messages = []
+
+        save_chat_history([])
+
+        st.success("Chat cleared.")
+
+        st.rerun()
 # --------------------------------------------------
 # Main
 # --------------------------------------------------
@@ -335,8 +373,6 @@ if query:
             "content": query,
         }
     )
-
-    # Show user message immediately
     with st.chat_message("user"):
         st.markdown(query)
 
@@ -387,5 +423,7 @@ if query:
             "citations": citations,
         }
     )
+
+    save_chat_history(st.session_state.messages)
 
     st.rerun()
