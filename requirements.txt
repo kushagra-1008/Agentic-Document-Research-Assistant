@@ -1,17 +1,20 @@
+streamlit
+
 langchain
 langchain-core
 langchain-community
 langchain-text-splitters
 langchain-google-genai
 langchain-chroma
+langchain-huggingface
 
 chromadb
 
 google-generativeai
 
-PyMuPDF
+sentence-transformers
+torch
+
+pypdf
 
 python-dotenv
-
-jupyter
-ipykernel

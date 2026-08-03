@@ -2,25 +2,34 @@
 __pycache__/
 *.py[cod]
 *.pyo
-*.pyd
 
 # Virtual Environment
 .venv/
 venv/
-env/
 
 # Environment Variables
 .env
 
-# Jupyter
-.ipynb_checkpoints/
-
-# Vector Database
-db/
-
-# VS Code
+# IDE
 .vscode/
+.idea/
 
-# OS Files
+# OS
 .DS_Store
 Thumbs.db
+
+# Python cache
+.pytest_cache/
+.mypy_cache/
+
+# Chroma Vector Database
+chroma_db/
+
+# Uploaded PDFs (generated locally)
+uploaded_pdfs/
+
+# Streamlit cache
+.streamlit/cache/
+
+# Logs
+*.log
