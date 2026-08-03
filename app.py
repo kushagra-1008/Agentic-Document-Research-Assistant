@@ -4,6 +4,7 @@ from pypdf import PdfReader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
+from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 import json
 load_dotenv()
@@ -11,7 +12,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_huggingface import HuggingFaceEmbeddings
 import streamlit as st
-
+from tavily import TavilyClient
 
 
 CHAT_HISTORY_FILE = "chat_history.json"
@@ -46,13 +47,21 @@ Question:
 # -----------------------------
 # Load LLM and Embedding model
 # -----------------------------
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
+
+llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    api_key=os.getenv("GROQ_API_KEY"),
     temperature=0,
 )
 
+# llm = ChatGoogleGenerativeAI(
+#     model="gemini-2.0-flash",
+#     temperature=0,
+# )
+
 embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en-v1.5")
 
+tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 # --------------------------------------------------
 # Text Splitter
@@ -159,7 +168,6 @@ def save_chat_history(messages):
         json.dump(messages, f, indent=4, ensure_ascii=False)
 
 
-
 def generate_answer(context, question):
 
     chain = PROMPT | llm | StrOutputParser()
@@ -178,19 +186,160 @@ def generate_answer(context, question):
         return f"Error generating answer:\n\n{e}"
 
 
+def verify_answer(question, context, answer):
+
+    verification_prompt = ChatPromptTemplate.from_template("""
+You are a verification system.
+
+Given the user's question, the retrieved document context and the generated answer,
+determine whether the answer is completely supported by the context.
+
+Reply with ONLY one word:
+
+SUPPORTED
+
+or
+
+UNSUPPORTED
+
+Question:
+{question}
+
+Context:
+{context}
+
+Answer:
+{answer}
+""")
+
+    chain = verification_prompt | llm | StrOutputParser()
+
+    try:
+        result = chain.invoke(
+            {
+                "question": question,
+                "context": context,
+                "answer": answer,
+            }
+        )
+
+        return result.strip().upper()
+
+    except Exception:
+        return "SUPPORTED"
+
+
+def web_search(query):
+
+    response = tavily.search(
+        query=query,
+        search_depth="advanced",
+        max_results=5,
+    )
+
+    results = response.get("results", [])
+
+    if not results:
+        return None, None
+
+    context_parts = []
+    sources = []
+
+    for i, result in enumerate(results, 1):
+
+        title = result.get("title", "Unknown")
+        url = result.get("url", "")
+        content = result.get("content", "")
+
+        for junk in [
+            "Appearance",
+            "From Wikipedia, the free encyclopedia",
+            "Jump to navigation",
+            "Jump to search",
+            "Skip to content",
+            "Open in app",
+            "Sign in",
+            "Login",
+            "Search",
+        ]:
+            content = content.replace(junk, "")
+
+        context_parts.append(
+            f"""
+    Source {i}
+    Title: {title}
+
+    Content:
+    {content}
+    """
+        )
+
+        sources.append(
+            {
+                "title": title,
+                "url": url,
+                "content": content,
+            }
+        )
+
+    context = "\n\n------------------------\n\n".join(context_parts)
+
+    return context, sources
+
+
+def generate_final_answer(question, document_context, web_context):
+
+    prompt = ChatPromptTemplate.from_template("""
+You are an Agentic Document Research Assistant.
+
+Your task is to answer the user's question using ONLY the information provided below.
+
+==========================
+Uploaded Documents
+==========================
+
+{document_context}
+
+==========================
+Web Search Results
+==========================
+
+{web_context}
+
+Question:
+{question}
+
+Instructions:
+
+- Prefer information from the uploaded documents whenever possible.
+- Use web search results only to supplement missing information.
+- Never use your own knowledge.
+- If the information is not present, say so.
+- Do NOT repeat these instructions.
+- Do NOT mention the prompt.
+- Begin directly with the answer.
+""")
+
+    chain = prompt | llm | StrOutputParser()
+
+    return chain.invoke(
+        {
+            "question": question,
+            "document_context": document_context,
+            "web_context": web_context,
+        }
+    )
 
 def answer_question(question):
-
-    # -----------------------------
-    # Load Vector Store
-    # -----------------------------
 
     retriever = create_retriever()
 
     if retriever is None:
         return (
-            "No indexed documents were found.\n\nPlease upload one or more PDF files and click 'Save & Ingest PDFs' before asking questions.",
+            "No indexed documents were found.\n\nPlease upload one or more PDF files.",
             [],
+            False,
+            False,
         )
 
     # -----------------------------
@@ -202,11 +351,10 @@ def answer_question(question):
         return (
             "I couldn't find sufficient information in the uploaded documents.",
             [],
+            False,
+            True,
         )
 
-    # -----------------------------
-    # Format Context
-    # -----------------------------
     context = format_docs(retrieved_docs)
 
     answer = generate_answer(
@@ -214,8 +362,56 @@ def answer_question(question):
         question=question,
     )
 
-    return answer, retrieved_docs
+    # -----------------------------
+    # Need Web Search?
+    # -----------------------------
+    if "I couldn't find sufficient information in the uploaded documents." in answer:
 
+        return (
+            answer,
+            retrieved_docs,
+            False,
+            True,
+        )
+
+    # -----------------------------
+    # Verify
+    # -----------------------------
+    verification = verify_answer(
+        question=question,
+        context=context,
+        answer=answer,
+    )
+
+    self_corrected = False
+
+    if verification == "UNSUPPORTED":
+
+        self_corrected = True
+
+        retriever = load_vectorstore().as_retriever(
+            search_type="mmr",
+            search_kwargs={
+                "k": 6,
+                "fetch_k": 15,
+            },
+        )
+
+        retrieved_docs = retriever.invoke(question)
+
+        context = format_docs(retrieved_docs)
+
+        answer = generate_answer(
+            context=context,
+            question=question,
+        )
+
+    return (
+        answer,
+        retrieved_docs,
+        self_corrected,
+        False,
+    )
 
 # =================================================================================================================
 #                                                   Streamlit UI
@@ -238,6 +434,11 @@ st.set_page_config(
 if "messages" not in st.session_state:
     st.session_state.messages = load_chat_history()
 
+if "pending_web_search" not in st.session_state:
+    st.session_state.pending_web_search = False
+    
+if "pending_query" not in st.session_state:
+    st.session_state.pending_query = ""
 # --------------------------------------------------
 # Sidebar
 # --------------------------------------------------
@@ -364,66 +565,203 @@ query = st.chat_input("Ask anything about your documents...")
 
 if query:
 
-    # -----------------------------
-    # Store User Message
-    # -----------------------------
     st.session_state.messages.append(
         {
             "role": "user",
             "content": query,
         }
     )
-    with st.chat_message("user"):
-        st.markdown(query)
 
-    # -----------------------------
-    # Generate Answer
-    # -----------------------------
-    with st.chat_message("assistant"):
-
-        with st.spinner("Retrieving..."):
-
-            answer, retrieved_docs = answer_question(query)
-
-        st.markdown(answer)
-
-        citations = []
-
-        if retrieved_docs:
-
-            with st.expander("📚 Sources"):
-
-                for doc in retrieved_docs:
-
-                    source = doc.metadata.get("source", "Unknown")
-
-                    page = doc.metadata.get("page", "?")
-
-                    snippet = doc.page_content[:300].strip() + "..."
-
-                    st.markdown(f"**{source}** — Page {page}")
-
-                    st.caption(snippet)
-
-                    citations.append(
-                        {
-                            "source": source,
-                            "page": page,
-                            "text": snippet,
-                        }
-                    )
-
-    # -----------------------------
-    # Save Assistant Message
-    # -----------------------------
-    st.session_state.messages.append(
-        {
-            "role": "assistant",
-            "content": answer,
-            "citations": citations,
-        }
-    )
+    st.session_state.pending_query = query
 
     save_chat_history(st.session_state.messages)
 
     st.rerun()
+if st.session_state.pending_query:
+
+    query = st.session_state.pending_query
+
+    with st.chat_message("assistant"):
+
+        with st.spinner("Retrieving..."):
+
+            answer, retrieved_docs, self_corrected, needs_web_search = answer_question(query)
+
+        # -----------------------------
+        # Need Web Search?
+        # -----------------------------
+
+        if needs_web_search:
+
+            st.warning(
+                "I couldn't find sufficient information in the uploaded documents."
+            )
+
+            st.write(
+                "Would you like me to search the web?"
+            )
+
+            st.session_state.pending_web_search = True
+
+        if st.session_state.pending_web_search:
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                approve = st.button(
+                    "Search Web",
+                    use_container_width=True,
+                )
+
+            with col2:
+                decline = st.button(
+                    "Cancel",
+                    use_container_width=True,
+                )
+
+            # -----------------------------
+            # User approved web search
+            # -----------------------------
+            if approve:
+
+                with st.spinner("Searching the web..."):
+
+                    # Search Tavily
+                    try:
+                        web_context, web_sources = web_search(query)
+
+                    except Exception as e:
+
+                        st.error(f"Web search failed: {e}")
+
+                        st.session_state.pending_query = ""
+                        st.session_state.pending_web_search = False
+
+                        st.stop()
+
+                    if not web_context:
+
+                        st.error("No relevant web results were found.")
+
+                        st.session_state.pending_query = ""
+                        st.session_state.pending_web_search = False
+
+                        st.stop()
+                    # Existing document context
+                    document_context = format_docs(retrieved_docs)
+
+                    # Generate final answer
+                    answer = generate_final_answer(
+                        question=query,
+                        document_context=document_context,
+                        web_context=web_context,
+                    )
+                    merged_context = f"""
+                    Uploaded Documents:
+
+                    {document_context}
+
+                    --------------------------------
+
+                    Web Search Results:
+
+                    {web_context}
+                    """
+
+                    verification = verify_answer(
+                        question=query,
+                        context=merged_context,
+                        answer=answer,
+                    )
+                    if "UNSUPPORTED" in verification:
+                        answer = (
+                            "I found relevant information on the web, "
+                            "but I couldn't confidently verify the generated response "
+                            "using the available evidence."
+                        )
+                st.markdown(answer)
+
+                citations = []
+
+                with st.expander("Web Sources"):
+
+                    for source in web_sources:
+
+                        st.markdown(f"**{source['title']}**")
+
+                        st.caption(source["url"])
+
+                        citations.append(
+                            {
+                                "source": source["title"],
+                                "page": "Web",
+                                "text": source["content"][:300],
+                            }
+                        )
+
+                st.session_state.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": answer,
+                        "citations": citations,
+                    }
+                )
+
+                save_chat_history(st.session_state.messages)
+
+                st.session_state.pending_query = ""
+                st.session_state.pending_web_search = False
+
+                st.rerun()
+
+
+            if decline:
+                st.session_state.pending_query = ""
+                st.session_state.pending_web_search = False
+                st.rerun()
+        else:
+
+            if self_corrected:
+
+                st.info(
+                    "Self-correction triggered. The assistant performed an additional retrieval before generating the final answer."
+                )
+
+            st.markdown(answer)
+
+            citations = []
+
+            if retrieved_docs:
+
+                with st.expander("Sources"):
+
+                    for doc in retrieved_docs:
+
+                        source = doc.metadata.get("source", "Unknown")
+                        page = doc.metadata.get("page", "?")
+                        snippet = doc.page_content[:300].strip() + "..."
+
+                        st.markdown(f"**{source}** — Page {page}")
+                        st.caption(snippet)
+
+                        citations.append(
+                            {
+                                "source": source,
+                                "page": page,
+                                "text": snippet,
+                            }
+                        )
+
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": answer,
+                    "citations": citations,
+                }
+            )
+
+            save_chat_history(st.session_state.messages)
+
+            st.session_state.pending_query = ""
+
+            st.rerun()
