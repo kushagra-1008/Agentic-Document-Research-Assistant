@@ -25,11 +25,17 @@ Thumbs.db
 # Chroma Vector Database
 chroma_db/
 
-# Uploaded PDFs (generated locally)
-uploaded_pdfs/
+# Uploaded documents
+data/
 
 # Streamlit cache
 .streamlit/cache/
 
+# Jupyter
+.ipynb_checkpoints/
+
 # Logs
 *.log
+
+# Local chat history
+chat_history.json
