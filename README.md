@@ -88,8 +88,8 @@ A Retrieval-Augmented Generation (RAG) application for querying PDF documents us
 Clone the repository.
 
 ```bash
-git clone <repository-url>
-cd <repository-name>
+git clone https://github.com/kushagra-1008/Agentic-Document-Research-Assistant.git
+cd Agentic-Document-Research-Assistant
 ```
 
 Create a virtual environment.
@@ -171,23 +171,28 @@ Every response includes the document snippets or web references used during gene
 
 ## Improvements
 
-This project extends a basic Retrieval-Augmented Generation pipeline by introducing multiple mechanisms to improve response reliability. Instead of relying solely on a single retrieval step, answers are verified against the retrieved context before being returned. If the verification step indicates that the generated response is not sufficiently supported, the application automatically performs a second retrieval using a broader search configuration and regenerates the answer.
+The main improvement in this project is that it does not treat document retrieval as the end of the question-answering process. The system first tries to answer a question from the uploaded documents and then checks whether the generated response is actually supported by the retrieved information. If the retrieved context is not enough, it gives the system another opportunity by performing a broader retrieval and generating the answer again.
 
-To improve retrieval quality, Maximum Marginal Relevance (MMR) is used instead of standard similarity search. This reduces redundant document chunks and provides more diverse context to the language model.
+The retrieval process also uses Maximum Marginal Relevance (MMR) rather than retrieving only the most similar chunks. This helps avoid returning several nearly identical pieces of information and gives the model a broader set of relevant context.
 
-When the uploaded documents do not contain sufficient information, the application does not automatically access external sources. Instead, it requests explicit user approval before performing a Tavily web search. The retrieved web context is then combined with the existing document context and verified again before generating the final response.
+Another important part of the workflow is the handling of information that is not present in the uploaded documents. Instead of silently searching the internet, the system asks the user before using web search. If approved, Tavily is used to retrieve external information, which is combined with the available document context before producing the response.
 
-Additionally, the application maintains persistent conversation history and presents supporting document excerpts or web references alongside every answer, enabling users to understand the evidence used during response generation.
+The application also keeps conversation history between sessions and shows the document or web references associated with responses. This makes the system easier to use for ongoing research while keeping the information behind each answer visible to the user.
 
 ---
 
 ## Future Work
 
-- Hybrid retrieval using BM25 and vector search
-- Metadata-aware filtering
-- Cross-encoder reranking
+The current version uses a single conversation and a shared document collection. The next stage is to evolve it into a more complete research workspace with independent conversations and persistent research sessions.
+
+- Multiple conversations with the ability to create, rename, switch between, and delete threads
+- Conversation-specific document collections and retrieval context
+- Persistent research sessions containing conversation history, documents, references, and web searches
+- Improved decision-making between retrieval, additional retrieval, verification, and web search
+- Independent verification of regenerated answers
+- Better source management and filtering
 - Support for additional document formats
-- Multi-user document collections
+- Multi-user workspaces with isolated conversations and document collections
 
 ---
 
@@ -196,7 +201,3 @@ Additionally, the application maintains persistent conversation history and pres
 **Demo Video:** *Add your Google Drive or YouTube link here.*
 
 ---
-
-## License
-
-This project is released under the MIT License.
